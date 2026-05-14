@@ -48,7 +48,7 @@ for _ in {1..30}; do
 done
 [[ "$STATUS" == "healthy" ]] || { echo "ERROR: postgres no llegó a healthy" >&2; exit 1; }
 
-# shellcheck source=/dev/null
+# shellcheck disable=SC1090
 set -a; source "$ENV_FILE"; set +a
 
 echo "→ Cargando dump..."
