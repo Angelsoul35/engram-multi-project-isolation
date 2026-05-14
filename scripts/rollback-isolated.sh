@@ -1,30 +1,28 @@
 #!/usr/bin/env bash
 # rollback-isolated.sh — revierte el setup aislado de un proyecto.
-#
-# - Mata procesos engram mcp con ENGRAM_DATA_DIR del slug.
-# - Borra ~/.engram-<slug>/.
-# - Quita el override mcpServers.engram del .claude/settings.local.json.
-# - Opcionalmente restaura el global desde un backup específico.
-#
-# Uso:
-#   ./rollback-isolated.sh --slug <slug> [--repo <ruta>] [--backup <archivo>]
 
 set -euo pipefail
 
 SLUG=""
 REPO=""
 BACKUP=""
+CLIENT="claude-code"
+CONFIG_PATH=""
 
 usage() {
   cat <<EOF
-Usage: $0 --slug <slug> [--repo <ruta-al-repo>] [--backup <archivo.db>]
+Usage: $0 --slug <slug> [--repo <ruta>] [--client <c>] [--config-path <p>] [--backup <archivo.db>]
 
 Revierte el setup aislado del proyecto <slug>.
 
 Opciones:
-  --slug    nombre del proyecto a revertir
-  --repo    ruta al repo (para limpiar settings.local.json). Opcional.
-  --backup  ruta a un backup específico para restaurar el global. Opcional.
+  --slug          nombre del proyecto a revertir
+  --repo          ruta al repo (para limpiar el config del cliente MCP). Opcional.
+  --client        cliente MCP usado en el setup (default: claude-code)
+                  Soportados: claude-code, cursor, custom
+  --config-path   solo con --client custom: ruta absoluta al archivo JSON
+                  del config MCP a limpiar
+  --backup        ruta a un backup específico para restaurar el global. Opcional.
 EOF
 }
 
@@ -32,6 +30,8 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --slug) SLUG="$2"; shift 2 ;;
     --repo) REPO="$2"; shift 2 ;;
+    --client) CLIENT="$2"; shift 2 ;;
+    --config-path) CONFIG_PATH="$2"; shift 2 ;;
     --backup) BACKUP="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "ERROR: argumento desconocido: $1" >&2; usage; exit 2 ;;
@@ -44,13 +44,27 @@ echo "$SLUG" | grep -qE '^[a-z][a-z0-9-]{1,63}$' || { echo "ERROR: slug inválid
 DATA_DIR="$HOME/.engram-$SLUG"
 GLOBAL_DB="$HOME/.engram/engram.db"
 
-echo "[rollback-isolated] slug=$SLUG"
+# Resolver SETTINGS_FILE si se pasó --repo
+SETTINGS_FILE=""
+if [[ -n "$REPO" ]]; then
+  case "$CLIENT" in
+    claude-code) SETTINGS_FILE="$REPO/.claude/settings.local.json" ;;
+    cursor)      SETTINGS_FILE="$REPO/.cursor/mcp.json" ;;
+    custom)
+      [[ -z "$CONFIG_PATH" ]] && { echo "ERROR: --client custom requiere --config-path" >&2; exit 2; }
+      SETTINGS_FILE="$CONFIG_PATH"
+      ;;
+    *) echo "ERROR: --client desconocido: $CLIENT" >&2; exit 2 ;;
+  esac
+fi
+
+echo "[rollback-isolated] slug=$SLUG client=$CLIENT"
 echo
 
 read -r -p "ATENCIÓN: esto borrará $DATA_DIR. ¿Continuar? [y/N] " resp
 [[ "$resp" =~ ^[Yy]$ ]] || { echo "Abortado."; exit 0; }
 
-# 1. Matar procesos engram mcp con ENGRAM_DATA_DIR=DATA_DIR
+# 1. Matar procesos engram mcp con ENGRAM_DATA_DIR del slug
 echo "[1/4] Matando procesos engram mcp con ENGRAM_DATA_DIR=$DATA_DIR..."
 pgrep -af "engram mcp" | grep -F "$DATA_DIR" | awk '{print $1}' | xargs -r kill 2>/dev/null || true
 
@@ -63,9 +77,8 @@ else
   echo "      WARNING: $DATA_DIR no existe (ya borrado?)"
 fi
 
-# 3. Limpiar override del repo si --repo
-if [[ -n "$REPO" ]]; then
-  SETTINGS_FILE="$REPO/.claude/settings.local.json"
+# 3. Limpiar override del repo si --repo + cliente
+if [[ -n "$SETTINGS_FILE" ]]; then
   if [[ -f "$SETTINGS_FILE" ]]; then
     echo "[3/4] Limpiando mcpServers.engram override de $SETTINGS_FILE..."
     python3 - "$SETTINGS_FILE" <<'PYEOF'
@@ -102,7 +115,7 @@ PYEOF
     echo "[3/4] $SETTINGS_FILE no existe — skip"
   fi
 else
-  echo "[3/4] --repo no especificado — skip cleanup settings.local.json"
+  echo "[3/4] --repo no especificado — skip cleanup config del cliente MCP"
 fi
 
 # 4. Restaurar global desde backup (opcional)
@@ -127,5 +140,6 @@ echo "==========================================="
 echo "  ROLLBACK ISOLATED — DONE"
 echo "==========================================="
 echo "  slug: $SLUG"
+echo "  client: $CLIENT"
 echo "  El proyecto vuelve a usar engram global ~/.engram/."
 echo "==========================================="

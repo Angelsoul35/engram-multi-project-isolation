@@ -39,7 +39,7 @@ por proyecto usando la variable de entorno `ENGRAM_DATA_DIR`.
   compartido.
 - Operadores que trabajan en múltiples proyectos sensibles (clientes
   distintos, NDAs distintos, contextos no intercambiables).
-- Cualquiera que quiera **garantizar empíricamente** que un agente Claude
+- Cualquiera que quiera **garantizar empíricamente** que un agente IA
   trabajando en el repo del proyecto X **NO PUEDE** ver memorias del
   proyecto Y, ni siquiera intentándolo.
 
@@ -66,10 +66,12 @@ git clone https://github.com/<tu-org>/engram-multi-project-isolation.git ~/engra
 ### Fase 3 — Por proyecto (5 minutos)
 
 ```bash
-# 1. Setup data dir aislado + override MCP en el repo del proyecto
+# 1. Setup data dir aislado + override MCP en el repo del proyecto.
+#    --client soportados: claude-code (default), cursor, custom
 ~/engram-multi-project-isolation/scripts/setup-isolated-project.sh \
   --slug myproject \
-  --repo /path/to/myproject
+  --repo /path/to/myproject \
+  --client claude-code
 
 # 2. (Opcional) Migrar memorias existentes del global
 ~/engram-multi-project-isolation/scripts/migrate-to-isolated.sh \
@@ -78,7 +80,8 @@ git clone https://github.com/<tu-org>/engram-multi-project-isolation.git ~/engra
 # 3. Validar 16 checks E2E (incluye runtime test via JSON-RPC)
 ~/engram-multi-project-isolation/scripts/validate-isolation.sh \
   --slug myproject \
-  --repo /path/to/myproject
+  --repo /path/to/myproject \
+  --client claude-code
 # Esperado: "16 pass, 0 fail", exit 0
 
 # 4. (Recomendado) Pre-commit hook anti-regresión en el repo del proyecto
@@ -87,8 +90,18 @@ cd /path/to/myproject
 
 # Rollback si algo sale mal
 ~/engram-multi-project-isolation/scripts/rollback-isolated.sh \
-  --slug myproject --repo /path/to/myproject
+  --slug myproject --repo /path/to/myproject --client claude-code
 ```
+
+## Clientes MCP soportados
+
+| Cliente | Path del config | Notas |
+|---|---|---|
+| **claude-code** (default) | `<repo>/.claude/settings.local.json` | Soporta `mcpServers` + `permissions.deny` + `hooks.SessionStart`. Configuración completa. |
+| **cursor** | `<repo>/.cursor/mcp.json` | Solo `mcpServers` (Cursor no soporta `permissions.deny` ni `hooks.SessionStart`). Aislamiento físico funciona igual. |
+| **custom** | `--config-path /ruta/al/config.json` | Para cualquier cliente MCP compatible con schema `mcpServers` JSON. |
+
+El aislamiento ARQUITECTÓNICO (data dir físicamente separado vía `ENGRAM_DATA_DIR`) es INDEPENDIENTE del cliente MCP — funciona en TODOS por diseño. Lo que cambia por cliente son las capas extras (permission deny, hook banner) que solo aplican donde el cliente las soporta.
 
 ## Documentación
 

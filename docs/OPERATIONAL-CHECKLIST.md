@@ -121,10 +121,10 @@ los checkboxes verde.
 - [ ] `cd ~/projects/<slug>`
 - [ ] `~/engram-multi-project-isolation/scripts/install-pre-commit.sh`
 
-### Prueba con sesión Claude
+### Prueba con sesión del agente IA
 
 - [ ] `cd ~/projects/<slug>`
-- [ ] `claude` (abrir nueva sesión)
+- [ ] `<comando-de-tu-IDE>` (abrir nueva sesión del agente IA)
 - [ ] Verificar banner "PROJECT SCOPE: <slug>" aparece al arranque
 - [ ] Pedir al agente: "buscá en engram el contexto del proyecto"
 - [ ] Verificar respuesta menciona SOLO `<slug>`, NO otros proyectos

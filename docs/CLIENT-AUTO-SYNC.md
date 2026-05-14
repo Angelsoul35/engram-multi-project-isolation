@@ -1,7 +1,7 @@
 # Auto-sync transparente del lado del cliente
 
 `engram` cloud es la capa de SINCRONIZACIÓN entre múltiples PCs, pero
-los tools MCP de Claude (`mem_search`, `mem_save`, `mem_context`) leen
+los tools MCP del agente IA (`mem_search`, `mem_save`, `mem_context`) leen
 y escriben SIEMPRE en el SQLite local. NO existe modo "cliente cloud
 puro" — toda query MCP toca el local.
 
@@ -13,13 +13,13 @@ engram sync --cloud --project <proyecto> --import
 ```
 
 Si el operador olvida ese comando antes de iniciar sesión, el agente
-Claude trabaja con un local desactualizado.
+el agente IA trabaja con un local desactualizado.
 
 ## Solución — hook SessionStart automático
 
 `scripts/setup-isolated-project.sh` configura automáticamente este hook
 en `.claude/settings.local.json` del repo. Se ejecuta al arrancar
-cualquier sesión Claude en ese repo.
+cualquier sesión del agente IA en ese repo.
 
 ### Patrón aplicado
 
@@ -64,11 +64,11 @@ Notas:
 ## Verificación
 
 Después de configurar el hook (vía `setup-isolated-project.sh`), abrir
-una nueva sesión Claude en el repo:
+una nueva sesión del agente IA en el repo:
 
 ```bash
 cd /path/to/myproject
-claude
+<comando-de-tu-IDE>  # ej. para abrir el cliente en el repo actual
 ```
 
 Y dentro de la sesión, en el primer mensaje al agente:

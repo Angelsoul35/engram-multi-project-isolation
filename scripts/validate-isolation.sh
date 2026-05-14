@@ -5,21 +5,25 @@
 # Devuelve exit 0 si los 16 checks pasan. Exit != 0 si algún FAIL.
 #
 # Uso:
-#   ./validate-isolation.sh --slug <slug> --repo <ruta-al-repo>
+#   ./validate-isolation.sh --slug <slug> --repo <ruta> [--client <c>] [--config-path <p>]
 
 set -euo pipefail
 
 SLUG=""
 REPO=""
+CLIENT="claude-code"
+CONFIG_PATH=""
 
 usage() {
   cat <<EOF
-Usage: $0 --slug <slug> --repo <ruta-al-repo>
+Usage: $0 --slug <slug> --repo <ruta> [--client <c>] [--config-path <p>]
 
 Verifica E2E (16 checks) que el proyecto <slug> está correctamente aislado:
   - 8 checks estructurales (perms, JSON, schema)
   - 7 checks funcionales (engram CLI con/sin override)
   - 1 check runtime (spawn MCP server real + JSON-RPC stdio)
+
+--client soportados: claude-code (default), cursor, custom (con --config-path)
 EOF
 }
 
@@ -27,6 +31,8 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --slug) SLUG="$2"; shift 2 ;;
     --repo) REPO="$2"; shift 2 ;;
+    --client) CLIENT="$2"; shift 2 ;;
+    --config-path) CONFIG_PATH="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "ERROR: argumento desconocido: $1" >&2; usage; exit 2 ;;
   esac
@@ -34,8 +40,18 @@ done
 
 [[ -z "$SLUG" || -z "$REPO" ]] && { usage; exit 2; }
 
+# Resolver SETTINGS_FILE según client
+case "$CLIENT" in
+  claude-code) SETTINGS_FILE="$REPO/.claude/settings.local.json" ;;
+  cursor)      SETTINGS_FILE="$REPO/.cursor/mcp.json" ;;
+  custom)
+    [[ -z "$CONFIG_PATH" ]] && { echo "ERROR: --client custom requiere --config-path" >&2; exit 2; }
+    SETTINGS_FILE="$CONFIG_PATH"
+    ;;
+  *) echo "ERROR: --client desconocido: $CLIENT" >&2; exit 2 ;;
+esac
+
 DATA_DIR="$HOME/.engram-$SLUG"
-SETTINGS_FILE="$REPO/.claude/settings.local.json"
 ENGRAM_BIN="${ENGRAM_BIN:-$HOME/.local/bin/engram}"
 
 PASS=0
@@ -67,19 +83,17 @@ check() {
 }
 
 echo "===================================="
-echo "  VALIDATE ISOLATION — slug=$SLUG"
+echo "  VALIDATE ISOLATION — slug=$SLUG client=$CLIENT"
 echo "===================================="
 
 # ---- Estructurales (1-8) ----
 
 check "data dir existe con perms 700" "
-  test -d '$DATA_DIR' && \
-  test \$(stat -c '%a' '$DATA_DIR') = '700'
+  test -d '$DATA_DIR' && test \$(stat -c '%a' '$DATA_DIR') = '700'
 "
 
 check "cloud.json existe con perms 600" "
-  test -f '$DATA_DIR/cloud.json' && \
-  test \$(stat -c '%a' '$DATA_DIR/cloud.json') = '600'
+  test -f '$DATA_DIR/cloud.json' && test \$(stat -c '%a' '$DATA_DIR/cloud.json') = '600'
 "
 
 check "SQLite contiene SOLO project='$SLUG'" "
@@ -91,23 +105,21 @@ sys.exit(0 if all(p == '$SLUG' for p in projs) else 1)
 \"
 "
 
-check "settings.local.json tiene mcpServers.engram apuntando al data dir aislado" "
+check "settings file ($CLIENT) tiene mcpServers.engram apuntando al data dir" "
   python3 -c \"
-import json, sys, os
+import json, sys
 with open('$SETTINGS_FILE') as f: cfg = json.load(f)
 mcp = cfg.get('mcpServers', {}).get('engram', {})
 slug = '$SLUG'
 data_dir = '$DATA_DIR'
 home_form = '\\\$HOME/.engram-' + slug
-# Form A: env.ENGRAM_DATA_DIR == path absoluto
 env_ds = mcp.get('env', {}).get('ENGRAM_DATA_DIR', '')
 if env_ds == data_dir:
     sys.exit(0)
-# Form B: command='bash' con args que contienen ENGRAM_DATA_DIR=...slug...
 joined = ' '.join([mcp.get('command','')] + mcp.get('args', []))
 if 'ENGRAM_DATA_DIR' in joined and (data_dir in joined or home_form in joined):
     sys.exit(0)
-print(f'mcpServers.engram no apunta al data dir aislado. mcp={mcp}', file=sys.stderr)
+print(f'mcpServers.engram no apunta al data dir. mcp={mcp}', file=sys.stderr)
 sys.exit(1)
 \"
 "
@@ -120,16 +132,20 @@ check "cloud sync --status no falla" "
   ENGRAM_DATA_DIR='$DATA_DIR' '$ENGRAM_BIN' sync --status 2>&1 | head -10 >/dev/null
 "
 
-check "permissions.deny incluye mem_stats" "
+check "permissions.deny mem_stats (claude-code) o ausente (otros clientes)" "
   python3 -c \"
 import json, sys
 with open('$SETTINGS_FILE') as f: cfg = json.load(f)
 deny = cfg.get('permissions', {}).get('deny', [])
-sys.exit(0 if 'mcp__plugin_engram_engram__mem_stats' in deny else 1)
+client = '$CLIENT'
+if client == 'claude-code':
+    sys.exit(0 if 'mcp__plugin_engram_engram__mem_stats' in deny else 1)
+else:
+    sys.exit(0)
 \"
 "
 
-check "hook SessionStart configurado con data dir aislado" "
+check "hook SessionStart (claude-code) o ausente (otros)" "
   python3 -c \"
 import json, sys
 with open('$SETTINGS_FILE') as f: cfg = json.load(f)
@@ -137,13 +153,15 @@ hooks = cfg.get('hooks', {}).get('SessionStart', [])
 slug = '$SLUG'
 data_dir = '$DATA_DIR'
 home_form = '\\\$HOME/.engram-' + slug
-ok = any(
-  (data_dir in h.get('command', '') or home_form in h.get('command', ''))
-  and slug in h.get('command', '')
-  for entry in hooks
-  for h in entry.get('hooks', [])
-)
-sys.exit(0 if ok else 1)
+client = '$CLIENT'
+if client == 'claude-code':
+    ok = any(
+      (data_dir in h.get('command', '') or home_form in h.get('command', '')) and slug in h.get('command', '')
+      for entry in hooks for h in entry.get('hooks', [])
+    )
+    sys.exit(0 if ok else 1)
+else:
+    sys.exit(0)
 \"
 "
 
@@ -157,12 +175,10 @@ if [[ -f "$GLOBAL_DB" ]]; then
   OTHER_PROJECT=$(python3 -c "
 import sqlite3
 c = sqlite3.connect('$GLOBAL_DB')
-# Preferir all-lowercase (CLI search compatible)
 for r in c.execute(\"\"\"
     SELECT project, COUNT(*) FROM observations
     WHERE project != '$SLUG' AND project IS NOT NULL
-      AND project = LOWER(project)
-      AND project NOT IN ('/', '$SLUG')
+      AND project = LOWER(project) AND project NOT IN ('/', '$SLUG')
     GROUP BY project ORDER BY COUNT(*) DESC LIMIT 1
 \"\"\"):
     print(r[0]); break
@@ -211,8 +227,6 @@ sys.exit(0 if n == 0 else 1)
 
   check "[funcional] engram projects list aislado solo muestra '$SLUG'" "
     out=\$(ENGRAM_DATA_DIR='$DATA_DIR' '$ENGRAM_BIN' projects list 2>&1 || true)
-    # Extraer SOLO líneas de proyecto: indentadas + nombre + ' N obs ...'
-    # (descartar notices upstream tipo 'Update available' / 'Projects (N):')
     projects=\$(echo \"\$out\" | awk '/^[[:space:]]+[a-zA-Z0-9_-]+[[:space:]]+[0-9]+ obs/ {print \$1}' | sort -u)
     n=\$(echo \"\$projects\" | grep -c . || echo 0)
     test \"\$n\" -eq 1 && test \"\$projects\" = '$SLUG'

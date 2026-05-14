@@ -23,7 +23,7 @@ Documento de referencia técnica. Para guía operativa práctica ver
 ┌─────────────────────────────────────────────────────────────────┐
 │  CADA PC DE DEV — N data dirs aislados                          │
 │                                                                 │
-│    Claude Code session abierta en /repo/myproject/              │
+│    sesión del agente IA abierta en /repo/myproject/              │
 │              │                                                  │
 │              │ spawn MCP via .claude/settings.local.json:       │
 │              │   "command":"bash" "args":["-c",                 │
@@ -58,7 +58,7 @@ Documento de referencia técnica. Para guía operativa práctica ver
 - Aislado físicamente de otros `~/.engram-<otroslug>/`.
 - Schema 100% compatible con `engram` CLI v1.15.10+.
 
-### 3. Claude Code en el repo del proyecto
+### 3. El IDE / cliente MCP en el repo del proyecto
 
 - Lee `.claude/settings.local.json` del repo al arrancar.
 - Spawn MCP server con `command:"bash"` + `args:["-c","ENGRAM_DATA_DIR=$HOME/.engram-<slug> ..."]`.
@@ -75,7 +75,7 @@ Para que un agente NO pueda ver memorias de proyectos no-suyos:
 
 2. **PERMISSION**: `.claude/settings.local.json` deny lista
    `mcp__plugin_engram_engram__mem_stats` (que es global by design del
-   binario). Bloqueado a nivel harness Claude Code.
+   binario). Bloqueado a nivel harness del IDE.
 
 3. **INSTRUCCIÓN**: bloque "AISLAMIENTO ESTRICTO" al principio de
    `CLAUDE.md` del repo con reglas no-negociables. El agente lo lee al

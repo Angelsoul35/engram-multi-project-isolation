@@ -119,7 +119,7 @@ ssh engram@<your-cloud-host> \
   `sudo systemctl restart engram-cloud.service`.
 
 - **c (token mismatch cliente)**: editar `~/.engram-<slug>/cloud.json`
-  con el token correcto. Reiniciar Claude para que el MCP server
+  con el token correcto. Reiniciar el agente para que el MCP server
   rearranque con la nueva config.
 
 - **e (slug no allowlisted)**: editar `/home/engram/engram-cloud/.env`
@@ -166,16 +166,16 @@ puede ser semanal en lugar de diario.
 
 ## Escenario 5 — Override `mcpServers` no se aplica
 
-**Síntoma**: en una sesión Claude abierta en el repo, el agente llama
+**Síntoma**: en una sesión del agente IA abierta en el repo, el agente llama
 `mem_search` y devuelve memorias de proyectos OTROS, indicando que el
 MCP server está leyendo del global `~/.engram/`.
 
 **Causa raíz por orden de probabilidad**:
 
-a. Versión de Claude Code no soporta `mcpServers` en `.claude/settings.local.json`.
+a. Versión del IDE / cliente MCP no soporta `mcpServers` en `.claude/settings.local.json`.
 b. JSON de `settings.local.json` mal formado.
 c. `ENGRAM_DATA_DIR` del config apunta a path inexistente.
-d. Cache de Claude Code requiere restart.
+d. Cache del IDE requiere restart.
 
 **Diagnóstico**:
 
@@ -186,8 +186,8 @@ python3 -c "import json; json.load(open('$REPO/.claude/settings.local.json'))"
 # 2. Validar data dir existe
 ls -la $(python3 -c "import json; print(json.load(open('$REPO/.claude/settings.local.json'))['mcpServers']['engram']['args'][1])" | grep -oE '\$HOME/[^ ]+' | sed "s|\$HOME|$HOME|")
 
-# 3. Versión Claude Code
-claude --version
+# 3. Versión del IDE / cliente MCP
+<your-agent-cli> --version  # comando version de tu IDE / cliente MCP
 ```
 
 **Recuperación**: re-correr setup (es idempotente):
@@ -197,7 +197,7 @@ claude --version
 ./scripts/validate-isolation.sh --slug <slug> --repo /path
 ```
 
-Cerrar TODAS las sesiones Claude del proyecto, reabrir nueva.
+Cerrar TODAS las sesiones del agente IA del proyecto, reabrir nueva.
 
 ## Escenario 6 — Conflicto de ID entre data dirs
 

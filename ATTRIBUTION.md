@@ -60,7 +60,7 @@ completo de aislamiento multi-proyecto:
 | Componente | Owner | Licencia | Modificable por este toolkit |
 |---|---|---|---|
 | binario `engram` | Gentleman Programming | MIT (upstream) | NO (consumido tal cual) |
-| protocolo MCP | Anthropic + comunidad | open spec | NO |
+| protocolo MCP | comunidad open spec (MCP) | open spec | NO |
 | schema SQLite/Postgres engram | Gentleman Programming | MIT (upstream) | NO |
 | `ENGRAM_DATA_DIR` env var | Gentleman Programming | MIT (upstream) | NO (usado como primitiva) |
 | scripts de este toolkit | engram-multi-project-isolation contributors | MIT | SÍ |
@@ -81,5 +81,5 @@ A **Gentleman Programming** y a los contribuidores de `engram` por construir
 una base sólida con la flexibilidad arquitectónica (vía `ENGRAM_DATA_DIR`)
 que permite el patrón de aislamiento que este toolkit formaliza.
 
-A la comunidad MCP / Anthropic por la especificación abierta del protocolo
+A la comunidad open spec MCP por la especificación abierta del protocolo
 sobre la cual se construye `engram` y, por extensión, este toolkit.
