@@ -15,6 +15,7 @@ OUTPUT="${BACKUP_DIR}/engram-cloud-${STAMP}.sql.gz"
 mkdir -p "$BACKUP_DIR"
 
 if [[ -f "$ENV_FILE" ]]; then
+  # shellcheck source=/dev/null
   set -a; source "$ENV_FILE"; set +a
 else
   echo "ERROR: $ENV_FILE no existe" >&2

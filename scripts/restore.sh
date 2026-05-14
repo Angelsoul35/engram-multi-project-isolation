@@ -41,13 +41,14 @@ echo "→ Levantando stack paralelo ($PROJECT_NAME)..."
 COMPOSE_PROJECT_NAME="$PROJECT_NAME" docker compose up -d postgres
 
 echo "→ Esperando Postgres healthy..."
-for i in {1..30}; do
+for _ in {1..30}; do
   STATUS=$(docker inspect --format='{{.State.Health.Status}}' "${PROJECT_NAME}-postgres-1" 2>/dev/null || echo "starting")
   [[ "$STATUS" == "healthy" ]] && break
   sleep 2
 done
 [[ "$STATUS" == "healthy" ]] || { echo "ERROR: postgres no llegó a healthy" >&2; exit 1; }
 
+# shellcheck source=/dev/null
 set -a; source "$ENV_FILE"; set +a
 
 echo "→ Cargando dump..."
