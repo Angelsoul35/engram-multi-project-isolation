@@ -211,8 +211,11 @@ sys.exit(0 if n == 0 else 1)
 
   check "[funcional] engram projects list aislado solo muestra '$SLUG'" "
     out=\$(ENGRAM_DATA_DIR='$DATA_DIR' '$ENGRAM_BIN' projects list 2>&1 || true)
-    n=\$(echo \"\$out\" | grep -E '^[a-zA-Z0-9_/.-]+\s' | wc -l)
-    test \"\$n\" -le 1 && echo \"\$out\" | grep -qE '(^| )$SLUG( |\$)'
+    # Extraer SOLO líneas de proyecto: indentadas + nombre + ' N obs ...'
+    # (descartar notices upstream tipo 'Update available' / 'Projects (N):')
+    projects=\$(echo \"\$out\" | awk '/^[[:space:]]+[a-zA-Z0-9_-]+[[:space:]]+[0-9]+ obs/ {print \$1}' | sort -u)
+    n=\$(echo \"\$projects\" | grep -c . || echo 0)
+    test \"\$n\" -eq 1 && test \"\$projects\" = '$SLUG'
   "
 fi
 
