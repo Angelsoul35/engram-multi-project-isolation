@@ -1,0 +1,103 @@
+name: Validate scripts + docs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: validate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  syntax-check:
+    name: Syntax check (bash + python + json)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: bash -n on all .sh
+        run: |
+          set -e
+          fail=0
+          for f in scripts/*.sh; do
+            echo "→ bash -n $f"
+            bash -n "$f" || fail=1
+          done
+          exit $fail
+      - name: python3 -m py_compile on all .py
+        run: |
+          set -e
+          for f in scripts/*.py; do
+            echo "→ py_compile $f"
+            python3 -m py_compile "$f"
+          done
+      - name: JSON validate
+        run: |
+          set -e
+          for f in $(find . -name '*.json' -not -path './.git/*'); do
+            echo "→ json validate $f"
+            python3 -c "import json,sys; json.load(open('$f'))"
+          done || echo "(sin .json files)"
+
+  shellcheck:
+    name: shellcheck (warnings)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: scripts
+          severity: warning
+          ignore_paths: scripts/install-pre-commit.sh
+
+  scripts-have-shebang-and-set-euo:
+    name: Scripts bash con shebang + set -euo pipefail
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          set -e
+          fail=0
+          for f in scripts/*.sh; do
+            head -1 "$f" | grep -qE '^#!/usr/bin/env bash' || {
+              echo "::error::$f sin shebang #!/usr/bin/env bash"
+              fail=1
+            }
+            grep -q 'set -euo pipefail' "$f" || {
+              echo "::error::$f sin 'set -euo pipefail'"
+              fail=1
+            }
+          done
+          exit $fail
+
+  docs-no-personal-paths:
+    name: Docs sin paths personales (best-effort)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          set -e
+          # Detecta patrones genéricos que NO deben aparecer en un repo
+          # template/genérico: paths /home/<user> con nombres específicos,
+          # IPs literales fuera de RFC 1918 ejemplos, etc. Heurístico.
+          # Lista negra inicial — extender según contexto.
+          forbidden=(
+            '/home/myname'
+            '/home/yourname'
+          )
+          fail=0
+          for p in "${forbidden[@]}"; do
+            hits=$(grep -rEn "$p" docs/ scripts/ README.md 2>&1 | grep -v '^Binary' | grep -v 'install-pre-commit.sh' | grep -v 'validate.yml' || true)
+            if [[ -n "$hits" ]]; then
+              echo "::error::Paths personales encontrados ($p):"
+              echo "$hits"
+              fail=1
+            fi
+          done
+          exit $fail

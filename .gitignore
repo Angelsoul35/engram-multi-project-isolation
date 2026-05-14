@@ -1,0 +1,37 @@
+# Secretos
+.env
+.env.local
+.env.*.local
+
+# Backups locales (server side)
+backups/
+*.sql
+*.sql.gz
+*.dump
+*.age
+*.gpg
+
+# Cloudflared credentials
+.cloudflared/
+*.json.cloudflared
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.vscode/
+.idea/
+
+# Logs
+*.log
+cron.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Engram local data (NO commitear data dirs aislados)
+.engram/
+.engram-*/
