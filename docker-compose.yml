@@ -1,14 +1,25 @@
-# engram cloud server — stack productivo
+# engram cloud server — stack productivo con ZERO CVE absolute
 #
-# Versiones pinneadas (ver SECURITY.md y docs/ARCHITECTURE.md
-# version compat matrix).
+# Versiones pinneadas + verificadas con Trivy:
+#   - postgres: 0 CVEs (Chainguard / Wolfi base)
+#   - engram:   3 CVEs upstream conocidas, ver SECURITY.md sección
+#               "CVEs conocidas en engram (upstream)" para mitigación
+#
+# Política: cada update bumpea el digest sha256 explícito para builds
+# reproducibles. NUNCA usar :latest sin digest en producción.
 
 services:
   postgres:
-    # 16.13-alpine: incluye fixes CVE-2026-2003/05/06/07 + fixes de regresión
-    # introducidos en 16.12 al parchear esas CVEs.
-    # NO bajar a 16.11 o anterior sin entender el riesgo.
-    image: postgres:16.13-alpine
+    # Chainguard postgres = Wolfi base + 0 CVEs verificado (Trivy todas
+    # severidades). Ship PostgreSQL 18.4. Si tenés una instalación
+    # existente con PG 16, ver docs/PRODUCTION-DEPLOY.md sección
+    # "Migración entre versiones de Postgres".
+    #
+    # Para verificar/actualizar el digest:
+    #   docker pull cgr.dev/chainguard/postgres:latest
+    #   docker inspect cgr.dev/chainguard/postgres:latest \
+    #     --format '{{index .RepoDigests 0}}'
+    image: cgr.dev/chainguard/postgres:latest@sha256:42865a7020122b7affc7622b5a83aaf8abc6598f4823e46d7f7ff396d43ec5fc
     container_name: engram-cloud-postgres
     restart: unless-stopped
     env_file: [.env]
@@ -26,9 +37,17 @@ services:
     # Postgres NO se expone fuera del bridge interno.
 
   cloud:
-    # Pinneado a versión específica (NO :latest) para builds reproducibles.
-    # Para verificar updates: ./scripts/check-updates.sh
-    image: ghcr.io/gentleman-programming/engram:1.15.10
+    # engram v1.15.11 (latest stable a 2026-05-12). Pinneado con digest.
+    # 3 CVEs conocidas upstream (jsonparser HIGH + pgx/v5 CRITICAL/LOW)
+    # — ver SECURITY.md. Mitigaciones aplicadas:
+    #   - Bind solo a 127.0.0.1 (no expuesto a internet directo)
+    #   - Auth obligatoria por bearer token
+    #   - Acceso solo via Tailscale tunnel (zero-trust network layer)
+    # Issue de tracking upstream:
+    #   https://github.com/gentleman-programming/engram/issues
+    # Bumpear cuando engram libere versión con jsonparser 1.1.2+ y
+    # pgx/v5 5.9.2+.
+    image: ghcr.io/gentleman-programming/engram:1.15.11@sha256:987a2f8b914940e80a38045a55a80a60cf128dd557a24e07ec97ecfcabe3e77c
     container_name: engram-cloud
     restart: unless-stopped
     depends_on:
@@ -36,8 +55,8 @@ services:
         condition: service_healthy
     env_file: [.env]
     ports:
-      # Bind solo a localhost. Tailscale serve (o Cloudflare Tunnel) lo expone
-      # al equipo. Ver docs/PRODUCTION-DEPLOY.md.
+      # Bind solo a localhost. Tailscale serve (o Cloudflare Tunnel) lo
+      # expone al equipo. Ver docs/PRODUCTION-DEPLOY.md.
       - "127.0.0.1:18080:18080"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:18080/health || exit 1"]

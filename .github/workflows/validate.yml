@@ -1,4 +1,4 @@
-name: Validate scripts + docs
+name: Validate scripts + docs + CVE gate
 
 on:
   push:
@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    # Re-scan diario para detectar CVEs nuevas en imágenes pinneadas.
+    # 06:00 UTC. Si aparecen, el job falla y el operador debe actuar.
+    - cron: '0 6 * * *'
 
 concurrency:
   group: validate-${{ github.ref }}
@@ -13,12 +17,12 @@ concurrency:
 
 jobs:
   syntax-check:
-    name: Syntax check (bash + python + json)
+    name: Syntax check
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: bash -n on all .sh
+      - name: bash -n
         run: |
           set -e
           fail=0
@@ -27,23 +31,31 @@ jobs:
             bash -n "$f" || fail=1
           done
           exit $fail
-      - name: python3 -m py_compile on all .py
+      - name: python3 py_compile
         run: |
           set -e
-          for f in scripts/*.py; do
+          for f in scripts/*.py .github/scripts/*.py; do
             echo "→ py_compile $f"
             python3 -m py_compile "$f"
+          done
+      - name: YAML validate
+        run: |
+          set -e
+          pip install pyyaml
+          for f in $(find . -name '*.yml' -o -name '*.yaml' 2>/dev/null | grep -v '/.git/'); do
+            echo "→ yaml validate $f"
+            python3 -c "import yaml,sys; yaml.safe_load(open('$f'))"
           done
       - name: JSON validate
         run: |
           set -e
-          for f in $(find . -name '*.json' -not -path './.git/*'); do
+          for f in $(find . -name '*.json' -not -path './.git/*' 2>/dev/null); do
             echo "→ json validate $f"
             python3 -c "import json,sys; json.load(open('$f'))"
           done || echo "(sin .json files)"
 
   shellcheck:
-    name: shellcheck (warnings)
+    name: shellcheck
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -54,8 +66,8 @@ jobs:
           severity: warning
           ignore_paths: scripts/install-pre-commit.sh
 
-  scripts-have-shebang-and-set-euo:
-    name: Scripts bash con shebang + set -euo pipefail
+  scripts-quality:
+    name: Scripts shebang + set -euo pipefail
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
@@ -76,21 +88,14 @@ jobs:
           exit $fail
 
   docs-no-personal-paths:
-    name: Docs sin paths personales (best-effort)
+    name: Docs sin paths personales
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
       - uses: actions/checkout@v4
       - run: |
           set -e
-          # Detecta patrones genéricos que NO deben aparecer en un repo
-          # template/genérico: paths /home/<user> con nombres específicos,
-          # IPs literales fuera de RFC 1918 ejemplos, etc. Heurístico.
-          # Lista negra inicial — extender según contexto.
-          forbidden=(
-            '/home/myname'
-            '/home/yourname'
-          )
+          forbidden=( '/home/myname' '/home/yourname' )
           fail=0
           for p in "${forbidden[@]}"; do
             hits=$(grep -rEn "$p" docs/ scripts/ README.md 2>&1 | grep -v '^Binary' | grep -v 'install-pre-commit.sh' | grep -v 'validate.yml' || true)
@@ -101,3 +106,36 @@ jobs:
             fi
           done
           exit $fail
+
+  trivy-gate:
+    name: Trivy CVE gate (ZERO CVE postgres + accepted CVEs engram)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Trivy
+        run: curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
+      - name: Install pyyaml
+        run: pip install pyyaml
+      - name: Extract pinned images
+        id: images
+        run: |
+          set -e
+          POSTGRES_IMG=$(grep -oE 'cgr\.dev/chainguard/postgres[^[:space:]]+' docker-compose.yml | head -1)
+          ENGRAM_IMG=$(grep -oE 'ghcr\.io/gentleman-programming/engram[^[:space:]]+' docker-compose.yml | head -1)
+          echo "postgres_img=$POSTGRES_IMG" >> $GITHUB_OUTPUT
+          echo "engram_img=$ENGRAM_IMG" >> $GITHUB_OUTPUT
+          echo "Postgres: $POSTGRES_IMG"
+          echo "Engram:   $ENGRAM_IMG"
+      - name: Trivy scan postgres (ZERO CVE absolute)
+        run: |
+          set -e
+          IMG="${{ steps.images.outputs.postgres_img }}"
+          trivy image --quiet --severity LOW,MEDIUM,HIGH,CRITICAL --format json "$IMG" \
+            | python3 .github/scripts/cve-gate.py --zero-cve --image-label postgres
+      - name: Trivy scan engram (acceptance gate)
+        run: |
+          set -e
+          IMG="${{ steps.images.outputs.engram_img }}"
+          trivy image --quiet --severity LOW,MEDIUM,HIGH,CRITICAL --format json "$IMG" \
+            | python3 .github/scripts/cve-gate.py --image-label engram
