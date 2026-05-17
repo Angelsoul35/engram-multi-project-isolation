@@ -252,8 +252,14 @@ echo "  --- Runtime check (spawn MCP + JSON-RPC test) ---"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNTIME_TEST="$SCRIPT_DIR/test-mcp-runtime-isolation.py"
 if [[ -f "$RUNTIME_TEST" ]]; then
-  check "[runtime] MCP server con override no leakea cross-project" "
-    python3 '$RUNTIME_TEST' --slug '$SLUG' --repo '$REPO' >/dev/null 2>&1
+  # Pasar --probe-project con el OTHER_PROJECT auto-detectado si existe,
+  # asegurando que probe ≠ slug (sino el test 3 sería inválido).
+  PROBE="$OTHER_PROJECT"
+  if [[ -z "$PROBE" || "$PROBE" == "$SLUG" ]]; then
+    PROBE="nonexistent-leak-probe-xyz123"
+  fi
+  check "[runtime] MCP server con override no leakea cross-project (probe=$PROBE)" "
+    python3 '$RUNTIME_TEST' --slug '$SLUG' --repo '$REPO' --probe-project '$PROBE' >/dev/null 2>&1
   "
 else
   echo "  [skip] $RUNTIME_TEST no existe — runtime test omitido"
