@@ -53,6 +53,14 @@ esac
 
 DATA_DIR="$HOME/.engram-$SLUG"
 ENGRAM_BIN="${ENGRAM_BIN:-$HOME/.local/bin/engram}"
+# Para tests "control" (que necesitan el GLOBAL engram, no el isolated),
+# preferir engram-real bypassing el wrapper. Si no existe (toolkit corre
+# en PC sin wrapper instalado todavía), fallback al wrapper.
+if [[ -x "$HOME/.local/bin/engram-real" ]]; then
+  ENGRAM_BIN_GLOBAL="$HOME/.local/bin/engram-real"
+else
+  ENGRAM_BIN_GLOBAL="$ENGRAM_BIN"
+fi
 
 PASS=0
 FAIL=0
@@ -221,7 +229,7 @@ sys.exit(0 if n == 0 else 1)
   "
 
   check "[funcional] engram projects list global SÍ lista '$OTHER_PROJECT' (control)" "
-    out=\$('$ENGRAM_BIN' projects list 2>&1 || true)
+    out=\$(ENGRAM_DATA_DIR='$HOME/.engram' '$ENGRAM_BIN_GLOBAL' projects list 2>&1 || true)
     echo \"\$out\" | grep -qE '(^| )$OTHER_PROJECT( |\$)'
   "
 
@@ -246,7 +254,27 @@ sys.exit(0 if cfg.get('token') and len(cfg['token']) >= 16 else 1)
 \"
 "
 
-# ---- Runtime check (16) ----
+# ---- Wrapper checks (necesarios cuando hay plugin Claude Code engram) ----
+echo
+echo "  --- Wrapper checks (defense vs plugin precedence) ---"
+
+check "[wrapper] engram wrapper instalado en ~/.local/bin/engram" "
+  test -L '$HOME/.local/bin/engram' && \
+  test \"\$(readlink '$HOME/.local/bin/engram')\" = '$HOME/.local/bin/engram-wrapper.sh' && \
+  test -x '$HOME/.local/bin/engram-real'
+"
+
+check "[wrapper] marker file '.engram-isolation' existe en repo con slug correcto" "
+  test -f '$REPO/.engram-isolation' && \
+  grep -qE '^slug:[[:space:]]+$SLUG\$' '$REPO/.engram-isolation'
+"
+
+check "[wrapper] invocar engram sin env desde cwd=repo apunta al isolated DB" "
+  cd '$REPO' && db=\$(unset ENGRAM_DATA_DIR; '$HOME/.local/bin/engram' stats 2>&1 | grep -oE 'Database:.*' | awk '{print \$2}')
+  test \"\$db\" = '$DATA_DIR/engram.db'
+"
+
+# ---- Runtime check (spawn MCP + JSON-RPC) ----
 echo
 echo "  --- Runtime check (spawn MCP + JSON-RPC test) ---"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -263,6 +291,18 @@ if [[ -f "$RUNTIME_TEST" ]]; then
   "
 else
   echo "  [skip] $RUNTIME_TEST no existe — runtime test omitido"
+fi
+
+# ---- CRITICAL — Plugin path check ----
+# Spawn engram mcp SIN env vars (como hace el plugin), via wrapper.
+# Verifica que el wrapper intercepta y aísla aunque el invocador no pase env.
+echo
+echo "  --- Plugin path check (simula plugin Claude Code engram) ---"
+if [[ -f "$RUNTIME_TEST" ]]; then
+  check "[plugin-path] engram mcp SIN env vars desde repo cwd → isolated DB" "
+    unset ENGRAM_DATA_DIR
+    python3 '$RUNTIME_TEST' --slug '$SLUG' --repo '$REPO' --probe-project '${PROBE:-nonexistent-leak-probe-xyz123}' --engram-bin '$HOME/.local/bin/engram' >/dev/null 2>&1
+  "
 fi
 
 echo

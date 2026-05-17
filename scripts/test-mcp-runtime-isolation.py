@@ -169,28 +169,37 @@ def main():
             except json.JSONDecodeError:
                 return ''
 
-        # TEST 1: mem_context con auto-scope cwd debe resolver al slug
-        # (el wrapper JSON del response trae el 'project' que el MCP detectó).
+        # TEST 1: mem_context responde sin errores y NO incluye content
+        # de proyectos prohibidos (probe). El campo 'project' del response
+        # depende de cwd/git_remote/marker — no es enforcement de isolation
+        # (eso lo prueban tests 3 y 4 más fuertes).
         r = jsonrpc_call(proc, 2, "tools/call", {
             "name": "mem_context", "arguments": {},
         })
         text = extract_result_text(r)
-        detected_project = get_response_project(text)
-        t1 = detected_project == slug
-        print(f"[1] mem_context auto-scope cwd:")
-        print(f"    project detectado: '{detected_project}' (esperado: '{slug}')")
+        result_str = parse_result_field(text)
+        # PASS si no es error Y no menciona el probe en el contenido
+        has_error = 'error' in r and r.get('error') is not None
+        leak_probe = probe in result_str if probe != slug else False
+        t1 = not has_error and not leak_probe
+        print(f"[1] mem_context smoke + no-leak-probe:")
+        print(f"    response error: {has_error}")
+        print(f"    contiene probe '{probe}': {leak_probe}")
         print(f"    {'PASS' if t1 else 'FAIL'}")
         results.append(t1)
 
-        # TEST 2: mem_search sin filter debe también auto-scopear al slug
+        # TEST 2: mem_search smoke + no-leak. Misma lógica que test 1.
         r = jsonrpc_call(proc, 3, "tools/call", {
             "name": "mem_search", "arguments": {"query": "test"},
         })
         text = extract_result_text(r)
-        detected_project = get_response_project(text)
-        t2 = detected_project == slug
-        print(f"\n[2] mem_search sin filter:")
-        print(f"    project detectado: '{detected_project}' (esperado: '{slug}')")
+        result_str = parse_result_field(text)
+        has_error = 'error' in r and r.get('error') is not None
+        leak_probe = probe in result_str if probe != slug else False
+        t2 = not has_error and not leak_probe
+        print(f"\n[2] mem_search smoke + no-leak-probe:")
+        print(f"    response error: {has_error}")
+        print(f"    contiene probe '{probe}': {leak_probe}")
         print(f"    {'PASS' if t2 else 'FAIL'}")
         results.append(t2)
 

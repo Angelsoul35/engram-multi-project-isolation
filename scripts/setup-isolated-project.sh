@@ -138,11 +138,13 @@ GLOBAL_CLOUD_JSON="$HOME/.engram/cloud.json"
 
 # Targets
 DATA_DIR="$HOME/.engram-$SLUG"
+MARKER_FILE="$REPO/.engram-isolation"
 
 # ---- Estado previo ----
 echo "[setup-isolated-project] slug=$SLUG repo=$REPO client=$CLIENT"
 echo "[setup-isolated-project] data_dir=$DATA_DIR"
 echo "[setup-isolated-project] settings_file=$SETTINGS_FILE"
+echo "[setup-isolated-project] marker=$MARKER_FILE"
 echo
 
 if [[ -d "$DATA_DIR" ]]; then
@@ -151,18 +153,38 @@ if [[ -d "$DATA_DIR" ]]; then
   echo "         Continuando con verificación + re-aplicación de override settings..."
 fi
 
+# ---- 0. Instalar/verificar engram wrapper ----
+# CRITICAL: el plugin Claude Code engram (si está instalado) define su propio
+# MCP server que IGNORA el mcpServers override del proyecto. Sin wrapper, el
+# aislamiento NO funciona en runtime real con el plugin. El wrapper intercepta
+# TODAS las invocaciones de engram y detecta el marker file `.engram-isolation`.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WRAPPER_INSTALLER="$SCRIPT_DIR/install-engram-wrapper.sh"
+if [[ -L "$HOME/.local/bin/engram" ]] && [[ "$(readlink "$HOME/.local/bin/engram")" == "$HOME/.local/bin/engram-wrapper.sh" ]]; then
+  echo "[0/7] Engram wrapper ya instalado, skip."
+else
+  echo "[0/7] Instalando engram wrapper (necesario para que el plugin Claude Code respete isolation)..."
+  if [[ -x "$WRAPPER_INSTALLER" ]]; then
+    "$WRAPPER_INSTALLER" 2>&1 | sed 's/^/    /'
+  else
+    echo "ERROR: $WRAPPER_INSTALLER no existe o no es ejecutable." >&2
+    echo "       Re-instalar el toolkit o correr install-engram-wrapper.sh manualmente." >&2
+    exit 1
+  fi
+fi
+
 # ---- 1. Crear data dir aislado con perms estrictas ----
-echo "[1/6] Creando data dir aislado..."
+echo "[1/7] Creando data dir aislado..."
 mkdir -p "$DATA_DIR"
 chmod 700 "$DATA_DIR"
 
 # ---- 2. Copiar cloud.json al data dir ----
-echo "[2/6] Copiando cloud.json + ajustando perms..."
+echo "[2/7] Copiando cloud.json + ajustando perms..."
 cp "$GLOBAL_CLOUD_JSON" "$DATA_DIR/cloud.json"
 chmod 600 "$DATA_DIR/cloud.json"
 
 # ---- 3. Inicializar SQLite del data dir ----
-echo "[3/6] Inicializando SQLite vacío..."
+echo "[3/7] Inicializando SQLite vacío..."
 ENGRAM_DATA_DIR="$DATA_DIR" "$ENGRAM_BIN" stats >/dev/null 2>&1 || true
 [[ -f "$DATA_DIR/engram.db" ]] || { echo "ERROR: engram no creó el DB en $DATA_DIR/engram.db" >&2; exit 1; }
 chmod 600 "$DATA_DIR/engram.db"
@@ -171,13 +193,24 @@ chmod 600 "$DATA_DIR/engram.db"
 echo "      OK: $DATA_DIR/engram.db creado (perms 600)"
 
 # ---- 4. Enrolar proyecto en cloud ----
-echo "[4/6] Enrolando proyecto en engram cloud..."
+echo "[4/7] Enrolando proyecto en engram cloud..."
 ENGRAM_DATA_DIR="$DATA_DIR" "$ENGRAM_BIN" cloud enroll "$SLUG" 2>&1 | head -3 || {
   echo "WARNING: enroll falló. Verificá que '$SLUG' esté en ENGRAM_CLOUD_ALLOWED_PROJECTS del cloud server." >&2
 }
 
-# ---- 5. Configurar override mcpServers en el config del cliente MCP ----
-echo "[5/6] Configurando override mcpServers ($CLIENT) en $SETTINGS_FILE..."
+# ---- 5. Crear marker file .engram-isolation en el repo ----
+echo "[5/7] Creando marker file $MARKER_FILE..."
+cat > "$MARKER_FILE" <<EOF
+# engram-isolation marker — leído por ~/.local/bin/engram wrapper.
+# Cuando el wrapper se invoca desde este repo (o subdirectorios), detecta
+# este archivo y setea ENGRAM_DATA_DIR=\$HOME/.engram-$SLUG automáticamente.
+# Esto garantiza isolation incluso cuando el invocador (plugin Claude Code,
+# CLI directo, etc.) no setea la env var explícitamente.
+slug: $SLUG
+EOF
+
+# ---- 6. Configurar override mcpServers en el config del cliente MCP ----
+echo "[6/7] Configurando override mcpServers ($CLIENT) en $SETTINGS_FILE..."
 mkdir -p "$SETTINGS_DIR"
 
 python3 - "$SETTINGS_FILE" "$SLUG" "$CLIENT" <<'PYEOF'
@@ -243,8 +276,8 @@ pathlib.Path(settings_path).write_text(json.dumps(cfg, indent=2) + "\n")
 print(f"      OK: {settings_path} actualizado para client={client}")
 PYEOF
 
-# ---- 6. Reporte + checklist final ----
-echo "[6/6] Reporte final"
+# ---- 7. Reporte + checklist final ----
+echo "[7/7] Reporte final"
 echo
 echo "==========================================="
 echo "  ENGRAM ISOLATED PROJECT — SETUP DONE"

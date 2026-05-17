@@ -118,6 +118,15 @@ else
   echo "[3/4] --repo no especificado — skip cleanup config del cliente MCP"
 fi
 
+# 3b. Borrar marker file .engram-isolation del repo si --repo
+if [[ -n "$REPO" && -f "$REPO/.engram-isolation" ]]; then
+  marker_slug=$(grep -oE '^slug:[[:space:]]+[a-z][a-z0-9-]+' "$REPO/.engram-isolation" 2>/dev/null | awk '{print $2}')
+  if [[ "$marker_slug" == "$SLUG" ]]; then
+    rm -f "$REPO/.engram-isolation"
+    echo "      Marker file $REPO/.engram-isolation borrado"
+  fi
+fi
+
 # 4. Restaurar global desde backup (opcional)
 if [[ -n "$BACKUP" ]]; then
   [[ -f "$BACKUP" ]] || { echo "ERROR: backup no existe: $BACKUP" >&2; exit 1; }
