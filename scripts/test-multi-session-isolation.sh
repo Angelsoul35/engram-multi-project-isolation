@@ -16,6 +16,9 @@ REPO_A="/tmp/multi-iso-a-$$"
 REPO_B="/tmp/multi-iso-b-$$"
 ENGRAM_BIN="${ENGRAM_BIN:-$HOME/.local/bin/engram}"
 
+# shellcheck disable=SC2064
+# (Intencional: expandir las vars AHORA al definir el trap, no en EXIT,
+# para que el cleanup conozca los paths aunque las vars se desreferencien.)
 trap "rm -rf '$REPO_A' '$REPO_B' '$HOME/.engram-$SLUG_A' '$HOME/.engram-$SLUG_B'" EXIT
 
 echo "=== TEST MULTI-SESSION ISOLATION ==="
