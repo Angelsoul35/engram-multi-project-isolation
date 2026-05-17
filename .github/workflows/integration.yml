@@ -1,0 +1,107 @@
+name: Integration test (E2E real engram + plugin simulation)
+
+# Corre el toolkit COMPLETO contra una instalación real de engram en CI.
+# Cubre el gap: validate-isolation.sh nunca corrió en CI antes, los tests
+# unitarios solo validaban syntax. Acá probamos que el flujo end-to-end
+# (setup → marker → wrapper → MCP → validate) funciona con engram REAL.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    # Re-correr semanal para detectar regresiones por updates upstream
+    - cron: '0 6 * * 1'
+
+jobs:
+  integration-e2e:
+    name: E2E full flow (install engram + setup + validate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install engram CLI from GitHub release
+        run: |
+          set -e
+          mkdir -p ~/.local/bin
+          # Pin engram version (consistente con setup-isolated-project.sh MIN_VERSION)
+          ENGRAM_VERSION="1.15.10"
+          curl -fsSL \
+            "https://github.com/gentleman-programming/engram/releases/download/v${ENGRAM_VERSION}/engram_${ENGRAM_VERSION}_linux_amd64.tar.gz" \
+            -o /tmp/engram.tar.gz
+          tar -xzf /tmp/engram.tar.gz -C /tmp/
+          mv /tmp/engram ~/.local/bin/engram
+          chmod +x ~/.local/bin/engram
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          ~/.local/bin/engram version
+
+      - name: Mock cloud config (no real cloud server en CI)
+        run: |
+          set -e
+          mkdir -p ~/.engram
+          chmod 700 ~/.engram
+          cat > ~/.engram/cloud.json <<EOF
+          {"server_url":"http://localhost:18080","token":"ci-mock-token-non-secret-1234567890ab"}
+          EOF
+          chmod 600 ~/.engram/cloud.json
+
+      - name: Install wrapper
+        run: |
+          set -e
+          ./scripts/install-engram-wrapper.sh
+
+      - name: Verify wrapper is in PATH and active
+        run: |
+          set -e
+          which engram
+          test -L ~/.local/bin/engram
+          test "$(readlink ~/.local/bin/engram)" = "$HOME/.local/bin/engram-wrapper.sh"
+          test -x ~/.local/bin/engram-real
+
+      - name: Setup isolated project for CI sandbox slug
+        run: |
+          set -e
+          SANDBOX_REPO=/tmp/ci-sandbox-repo
+          mkdir -p "$SANDBOX_REPO"
+          cd "$SANDBOX_REPO" && git init -q
+          cd $GITHUB_WORKSPACE
+          ./scripts/setup-isolated-project.sh --slug cisandbox --repo "$SANDBOX_REPO" --client claude-code
+
+      - name: Save test observations to isolated DB
+        run: |
+          set -e
+          ENGRAM_DATA_DIR=$HOME/.engram-cisandbox \
+            ~/.local/bin/engram-real save \
+            "ci-test-obs" "Unique CI test content for cisandbox isolation" \
+            --type manual --project cisandbox
+
+      - name: Run validate-isolation.sh — TODOS los 20+ checks deben pasar
+        run: |
+          set -e
+          SANDBOX_REPO=/tmp/ci-sandbox-repo
+          ./scripts/validate-isolation.sh \
+            --slug cisandbox --repo "$SANDBOX_REPO" --client claude-code
+
+      - name: Run multi-session concurrent isolation test
+        run: |
+          set -e
+          ./scripts/test-multi-session-isolation.sh
+
+      - name: Run runtime probe with plugin-path simulation
+        run: |
+          set -e
+          SANDBOX_REPO=/tmp/ci-sandbox-repo
+          cd "$SANDBOX_REPO"
+          unset ENGRAM_DATA_DIR
+          python3 $GITHUB_WORKSPACE/scripts/test-mcp-runtime-isolation.py \
+            --slug cisandbox --repo "$SANDBOX_REPO" \
+            --probe-project nonexistent-probe-xyz \
+            --engram-bin ~/.local/bin/engram
+
+      - name: Cleanup
+        if: always()
+        run: |
+          ./scripts/rollback-isolated.sh --slug cisandbox --repo /tmp/ci-sandbox-repo --client claude-code <<< "y" || true
