@@ -40,6 +40,10 @@ done
 
 [[ -z "$SLUG" || -z "$REPO" ]] && { usage; exit 2; }
 
+# CRITICAL: computar SCRIPT_DIR al principio, ANTES de cualquier cd
+# (algunos checks hacen 'cd $REPO' que cambia el cwd del script).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Resolver SETTINGS_FILE según client
 case "$CLIENT" in
   claude-code) SETTINGS_FILE="$REPO/.claude/settings.local.json" ;;
@@ -270,14 +274,13 @@ check "[wrapper] marker file '.engram-isolation' existe en repo con slug correct
 "
 
 check "[wrapper] invocar engram sin env desde cwd=repo apunta al isolated DB" "
-  cd '$REPO' && db=\$(unset ENGRAM_DATA_DIR; '$HOME/.local/bin/engram' stats 2>&1 | grep -oE 'Database:.*' | awk '{print \$2}')
+  db=\$( ( cd '$REPO' && unset ENGRAM_DATA_DIR && '$HOME/.local/bin/engram' stats 2>&1 ) | grep -oE 'Database:.*' | awk '{print \$2}')
   test \"\$db\" = '$DATA_DIR/engram.db'
 "
 
 # ---- Runtime check (spawn MCP + JSON-RPC) ----
 echo
 echo "  --- Runtime check (spawn MCP + JSON-RPC test) ---"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNTIME_TEST="$SCRIPT_DIR/test-mcp-runtime-isolation.py"
 if [[ -f "$RUNTIME_TEST" ]]; then
   # Pasar --probe-project con el OTHER_PROJECT auto-detectado si existe,
